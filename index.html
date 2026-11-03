@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<!--
+    ====================================================================
+    PRÁCTICA 12: TABLA DE SUELDOS CON FORMULARIO Y FOTO POR RFC
+    ====================================================================
+    Descripción general:
+    Aplicación web interactiva en HTML, CSS y JS que captura datos de
+    empleados (incluyendo RFC), asocia automáticamente la foto de perfil
+    según el RFC ingresado (ejemplo: 01.jpeg o 02.jpeg) y genera una tabla
+    dinámica de 10 filas con cálculos de sueldo quincenal y bono.
+
+    NOVEDADES DE LA PRÁCTICA 12:
+    1. Después de agregar cada empleado se muestra un aviso con la cantidad
+       de renglones vacíos que quedan en la tabla.
+    2. Las filas de la tabla se intercalan en dos colores: azul y azul más claro.
+-->
+<html lang="es">
+<head>
+    <!-- Define la codificación de caracteres en UTF-8 (soporta tildes y ñ) -->
+    <meta charset="UTF-8">
+
+    <!-- Garantiza que la interfaz se ajuste correctamente en dispositivos móviles -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Título que aparece en la pestaña del navegador -->
+    <title>Práctica 12</title>
+
+    <!-- ===============================================================
+         HOJA DE ESTILOS CSS: Formato y diseño visual de los componentes
+         =============================================================== -->
+    <style>
+        /* Regla global para la tabla: une los bordes y ocupa todo el ancho */
+        table {
+            border-collapse: collapse; /* Elimina la doble línea entre celdas */
+            width: 100%;               /* Ocupa el 100% del contenedor padre */
+        }
+
+        /* Estilo para los encabezados de la tabla (th) */
+        th {
+            background-color: yellow; /* Fondo amarillo característico */
+            text-align: left;         /* Alinea el texto a la izquierda */
+        }
+
+        /* Estilo para las celdas de datos (td) */
+        td {
+            height: 50px;             /* Altura ajustada para alojar adecuadamente la imagen */
+            vertical-align: middle;   /* Centra el contenido verticalmente en la celda */
+        }
+
+        /* NUEVO: colores intercalados para los renglones
+           - Filas impares (1, 3, 5, 7, 9): azul
+           - Filas pares   (2, 4, 6, 8, 10): azul más claro */
+        tr.fila-impar td {
+            background-color: #9DC3E6; /* Azul */
+        }
+
+        tr.fila-par td {
+            background-color: #DDEBF7; /* Azul más claro */
+        }
+
+        /* Reglas aplicadas simultáneamente a encabezados y celdas */
+        th, td {
+            border: 1px solid black;  /* Borde sólido negro de 1 píxel */
+            padding: 4px 8px;         /* Margen interno: 4px arriba/abajo y 8px a los lados */
+        }
+
+        /* Alineación a la derecha para la columna con la clase 'num' (# de fila) */
+        td.num {
+            text-align: right;
+        }
+
+        /* Clase CSS para dar formato a la imagen del empleado en la tabla */
+        .foto-empleado {
+            width: 80px;              /* Ancho fijo de 80 píxeles */
+            height: auto;             /* La altura se ajusta proporcionalmente */
+            object-fit: cover;        /* Ajusta la imagen sin distorsionar */
+            border-radius: 4px;       /* Redondea suavemente las esquinas de la foto */
+            border: 1px solid #666;   /* Borde gris delgado alrededor de la imagen */
+            display: block;           /* Permite aplicar márgenes de bloque */
+            margin: 0 auto;           /* Centra la imagen horizontalmente en su celda */
+        }
+
+        /* Margen inferior del formulario para separarlo de la tabla */
+        form {
+            margin-bottom: 16px;
+        }
+
+        /* Estilo para las etiquetas de texto en el formulario */
+        label {
+            display: inline-block;
+            margin-right: 12px;
+            margin-bottom: 8px;
+        }
+
+        /* Estilo general para las cajas de entrada de datos */
+        input {
+            padding: 4px;
+        }
+
+        /* Estilo para el texto del contador y mensajes de estado */
+        #mensaje {
+            margin-left: 12px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===============================================================
+         ESTRUCTURA HTML: Formulario de captura de datos
+         =============================================================== -->
+    <form id="formulario">
+        <!-- Campo para capturar el Nombre del Empleado -->
+        <label>Nombre:
+            <input type="text" id="nombre" required>
+        </label>
+
+        <!-- Campo para capturar el RFC (usado para cargar la imagen correspondiente) -->
+        <label>RFC:
+            <input type="text" id="rfc" required style="text-transform: uppercase;">
+        </label>
+
+        <!-- Campo para capturar los Días Trabajados (acepta decimales) -->
+        <label>Días Trabajados:
+            <input type="number" id="dt" min="0" step="any" required>
+        </label>
+
+        <!-- Campo para capturar los años de Antigüedad (solo números enteros) -->
+        <label>Antigüedad:
+            <input type="number" id="antiguedad" min="0" step="1" required>
+        </label>
+
+        <!-- Botón para procesar y agregar la información al arreglo -->
+        <button type="submit" id="btnAgregar">Agregar</button>
+
+        <!-- Etiqueta contenedora para mensajes de conteo o alerta -->
+        <span id="mensaje"></span>
+    </form>
+
+    <!-- Div contenedor donde JavaScript renderiza la tabla dinámicamente -->
+    <div id="resultado"></div>
+
+    <!-- ===============================================================
+         LÓGICA JAVASCRIPT: Procesamiento, cálculos y manipulación del DOM
+         =============================================================== -->
+    <script>
+        // -------------------------------------------------------------
+        // 1. CONSTANTES Y VARIABLES GLOBALES
+        // -------------------------------------------------------------
+        const bono = 1200;      // Valor en dinero del bono otorgado si antigüedad > 10
+        const SQ = 15000;       // Sueldo Quincenal base ($15,000)
+        const totalFilas = 10;  // Número máximo fijado de filas en la tabla
+
+        // Arreglo global donde se almacenan los objetos con la información del personal
+        let empleados = [];
+
+        // -------------------------------------------------------------
+        // FUNCIÓN AUXILIAR: imagenError()
+        // Oculta la etiqueta <img> si el archivo de foto no existe en la carpeta
+        // y muestra el texto alternativo "Sin imagen".
+        // -------------------------------------------------------------
+        function imagenError(img) {
+            img.style.display = 'none';
+            if (img.nextElementSibling) {
+                img.nextElementSibling.style.display = 'inline';
+            }
+        }
+
+        // -------------------------------------------------------------
+        // 2. FUNCIÓN: dibujarTabla()
+        // Construye dinámicamente el HTML de la tabla de 10 filas usando
+        // Template Literals (comillas invertidas ``) e inyecta el resultado.
+        // -------------------------------------------------------------
+        function dibujarTabla() {
+            // Se inicializa la cadena construyendo el encabezado de la tabla (tr con th)
+            let tabla = `<table>
+                <tr>
+                    <th>#</th>
+                    <th>Foto</th>
+                    <th>Nombre</th>
+                    <th>RFC</th>
+                    <th>Días Trabajados</th>
+                    <th>Antigüedad</th>
+                    <th>Sueldo</th>
+                    <th>Bono</th>
+                    <th>Total</th>
+                </tr>`;
+
+            // Bucle que corre de 1 a 10 para crear las 10 filas fijas
+            for (let i = 1; i <= totalFilas; i++) {
+                // Se busca el objeto del empleado en el arreglo utilizando la posición (i - 1)
+                let emp = empleados[i - 1];
+
+                // NUEVO: si el número de fila es impar usa el azul, si es par el azul más claro
+                let claseFila = (i % 2 === 1) ? "fila-impar" : "fila-par";
+
+                // Comienza la fila actual (tr) con su clase de color y la celda con el número
+                tabla += `<tr class="${claseFila}">
+                    <td class="num">${i}</td>`;
+
+                // Comprueba si la variable emp contiene un objeto guardado
+                if (emp) {
+                    // SI HAY DATOS: concatena todas las celdas con la información real
+                    tabla += `
+                        <td style="text-align:center;">
+                            <img src="${emp.foto}" class="foto-empleado" alt="Foto" width="80" onerror="imagenError(this)">
+                            <span style="display:none; font-size:11px; color:#666;">Sin imagen</span>
+                        </td>
+                        <td>${emp.nombre}</td>
+                        <td>${emp.rfc}</td>
+                        <td>${emp.dt}</td>
+                        <td>${emp.antiguedad}</td>
+                        <td>$${emp.sueldo.toFixed(2)}</td>
+                        <td>$${emp.bono.toFixed(2)}</td>
+                        <td>$${emp.total.toFixed(2)}</td>`;
+                } else {
+                    // NO HAY DATOS: concatena 8 celdas <td> vacías para preservar la estructura
+                    tabla += `<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>`;
+                }
+
+                // Cierra la fila actual
+                tabla += `</tr>`;
+            }
+
+            // Cierra el bloque final de la tabla HTML
+            tabla += `</table>`;
+
+            // Inyecta el texto generado en la propiedad innerHTML del div #resultado
+            document.getElementById("resultado").innerHTML = tabla;
+        }
+
+        // -------------------------------------------------------------
+        // 3. MANEJADOR DEL EVENTO "SUBMIT" DEL FORMULARIO
+        // Se ejecuta cada vez que el usuario intenta agregar un registro.
+        // -------------------------------------------------------------
+        document.getElementById("formulario").addEventListener("submit", function (e) {
+            // Cancela el refresco automático que hace el navegador al enviar formularios
+            e.preventDefault();
+
+            // Bloqueo de seguridad: interrumpe el proceso si el arreglo ya tiene 10 empleados
+            if (empleados.length >= totalFilas) {
+                return;
+            }
+
+            // A) LECTURA Y PROCESAMIENTO DE CAMPOS DEL FORMULARIO
+            let nombre = document.getElementById("nombre").value;
+            let rfc = document.getElementById("rfc").value.trim().toLowerCase();
+
+            // Genera la ruta de la imagen según el RFC capturado (ej. 01.jpeg o 02.jpeg)
+            let nombreImagen = rfc + ".jpeg";
+
+            let dt = parseFloat(document.getElementById("dt").value);
+            let antiguedad = parseInt(document.getElementById("antiguedad").value);
+
+            // B) REGLAS DE CÁLCULO
+            // 1. Sueldo base: (Sueldo Quincenal / 15) multiplicado por los días trabajados
+            let sueldo = (SQ / 15) * dt;
+
+            // 2. Evalúa si aplica el bono de $1,200 según la antigüedad
+            let bonoEmpleado = 0;
+            if (antiguedad > 10) {
+                bonoEmpleado = bono;
+            }
+
+            // 3. Suma final: Sueldo parcial más el Bono correspondiente
+            let st = sueldo + bonoEmpleado;
+
+            // C) ALMACENAMIENTO DE DATOS
+            empleados.push({
+                nombre: nombre,
+                rfc: rfc.toUpperCase(),
+                foto: nombreImagen,
+                dt: dt,
+                antiguedad: antiguedad,
+                sueldo: sueldo,
+                bono: bonoEmpleado,
+                total: st
+            });
+
+            // D) REDIBUJAR INTERFAZ Y LIMPIAR
+            dibujarTabla();
+            this.reset();
+
+            // E) GESTIÓN DE LÍMITES Y ALERTAS AL USUARIO
+            if (empleados.length >= totalFilas) {
+                // Deshabilita los controles del formulario al completar 10 filas
+                document.getElementById("btnAgregar").disabled = true;
+                document.getElementById("nombre").disabled = true;
+                document.getElementById("rfc").disabled = true;
+                document.getElementById("dt").disabled = true;
+                document.getElementById("antiguedad").disabled = true;
+
+                document.getElementById("mensaje").textContent = "Tabla completa (10 de 10)";
+            } else {
+                document.getElementById("mensaje").textContent = "Registros: " + empleados.length + " de " + totalFilas;
+                document.getElementById("nombre").focus();
+            }
+
+            // F) NUEVO: AVISO DE RENGLONES VACÍOS
+            // Calcula cuántas filas quedan sin datos: total de filas - empleados capturados
+            let vacios = totalFilas - empleados.length;
+
+            // setTimeout da un instante al navegador para pintar la fila nueva
+            // antes de que aparezca el aviso (alert detiene la pantalla).
+            setTimeout(function () {
+                if (vacios === 0) {
+                    alert("La tabla está completa. Renglones vacíos: 0");
+                } else if (vacios === 1) {
+                    alert("Queda 1 renglón vacío en la tabla.");
+                } else {
+                    alert("Quedan " + vacios + " renglones vacíos en la tabla.");
+                }
+            }, 50);
+        });
+    </script>
+
+</body>
+</html>
